@@ -3,15 +3,15 @@
  * C89/C90 compliant
  *
  * Simple wrapper that:
- * 1. Connects to marrow (or checks if already connected)
+ * 1. Connects to mu (or checks if already connected)
  * 2. Starts kryon WM with default configuration
  * 3. Runs until WM exits
  *
- * Usage: wm [--marrow ADDR] [--run FILE.kry]
+ * Usage: wm [--mu ADDR] [--run FILE.kry]
  */
 
 #include "p9client.h"
-#include "marrow.h"
+#include "mu.h"
 #include <lib9.h>
 #include <stdio.h>
 #include <stdlib.h>

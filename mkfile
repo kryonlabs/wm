@@ -1,4 +1,5 @@
 # Window Manager - Plan 9 mk build file
+# Independent of TK - follows rio pattern (rio is independent of tk)
 
 <../mkfile.common
 
@@ -13,17 +14,12 @@ SRC=src
 BUILD=build
 BIN=bin
 
-# Marrow graphics library
-MARROW=../marrow
-MARROW_INCLUDE=$MARROW/include
-
-# TaijiOS Toolkit (TK) - for window/widget APIs
-TK=../tk
-TK_INCLUDE=$TK/include
-TK_LIB=$TK/build/libtk.a
+# Mu graphics library
+MU=../mu
+MU_INCLUDE=$MU/include
 
 # Sources
-WM_SRC=main
+WM_SRC=main menu shell wmgr
 
 # Targets
 WM_BIN=$BIN/wm
@@ -35,16 +31,16 @@ all:V: setup $WM_BIN
 setup:V:
 	mkdir -p $BUILD $BIN
 
-# WM binary
-$WM_BIN: ${WM_SRC:%=$BUILD/%.$O} $TK_LIB $LIB9_LIB
-	$LD -Wall -g -I$INCLUDE -I$SRC -I$MARROW_INCLUDE -I$LIB9_INCLUDE -I$TK_INCLUDE \
+# WM binary (independent of tk - only depends on mu and lib9)
+$WM_BIN: ${WM_SRC:%=$BUILD/%.$O} $LIB9_LIB
+	$LD -Wall -g -I$INCLUDE -I$SRC -I$MU_INCLUDE -I$LIB9_INCLUDE \
 		${WM_SRC:%=$BUILD/%.$O} \
-		-L$TK/build -L$MARROW/build -L$LIB9 -ltk -lmarrow -l9 -o $target $LDFLAGS
+		-L$MU/build -L$LIB9 -lmu -l9 -o $target $LDFLAGS
 	chmod +x $target
 
 # Compile rules
 $BUILD/%.$O: $SRC/%.c
-	$CC $CFLAGS -I$INCLUDE -I$SRC -I$MARROW_INCLUDE -I$LIB9_INCLUDE -I$TK_INCLUDE -c $prereq -o $target
+	$CC $CFLAGS -I$INCLUDE -I$SRC -I$MU_INCLUDE -I$LIB9_INCLUDE -c $prereq -o $target
 
 # Clean
 clean:V:

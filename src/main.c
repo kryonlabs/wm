@@ -3,7 +3,7 @@
  * C89/C90 compliant
  *
  * Kryon is now a window manager service that:
- * - Connects to Marrow (port 17010) for graphics via /dev/draw
+ * - Connects to Mu (port 17010) for graphics via /dev/draw
  * - Registers as window-manager service
  * - Mounts /mnt/wm filesystem
  * - Provides window management
@@ -15,10 +15,13 @@
 #include "wm.h"
 #include "vdev.h"
 #include "p9client.h"
-#include "marrow.h"
+#include "mu.h"
 #include "kryon.h"
 #include "parser.h"
 #include "graphics.h"
+#include "menu.h"
+#include "shell.h"
+#include "wmgr.h"
 #include <lib9.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -145,6 +148,22 @@ static int g_render_width = 0;
 static int g_render_height = 0;
 
 /*
+ * Global menu state
+ */
+static Menu *g_active_menu = NULL;
+static int g_menu_mode = 0;  /* 0 = normal, 1 = resize, 2 = move */
+
+/*
+ * Menu action callbacks
+ */
+static void menu_action_new(void);
+static void menu_action_resize(void);
+static void menu_action_move(void);
+static void menu_action_delete(void);
+static void menu_action_hide(void);
+static void menu_action_exit(void);
+
+/*
  * Push g_screen_buffer pixels to Marrow's /dev/screen.
  * Called after every render_all() so the display client sees updated pixels.
  */
@@ -207,11 +226,62 @@ static void handle_mouse_events(void)
     ssize_t nr = p9_read(g_marrow_client, g_marrow_mouse_fd, mbuf, sizeof(mbuf) - 1);
 
     if (nr > 0) {
+        int mx, my, mb;
+
         mbuf[nr] = '\0';
-        KryonWindow *win = window_get(1);
-        if (win != NULL) {
-            vdev_mouse_write(mbuf, nr, 0, win);
-            g_render_dirty = 1;  /* Only mark dirty if window exists */
+
+        /* Parse mouse event: format is "m timestamp x y b" */
+        if (sscanf(mbuf, "m %*d %d %d %d", &mx, &my, &mb) >= 3) {
+
+            /* Check for right-click (button 4) when menu is not active */
+            if (g_active_menu == NULL && mb == 4) {
+                /* Create and show menu at mouse position */
+                static MenuItem menu_items[] = {
+                    {"New", menu_action_new},
+                    {"Resize", menu_action_resize},
+                    {"Move", menu_action_move},
+                    {"Delete", menu_action_delete},
+                    {"Hide", menu_action_hide},
+                    {NULL, NULL}  /* Sentinel */
+                };
+
+                g_active_menu = menu_create(menu_items, 5, mx, my);
+                if (g_active_menu != NULL) {
+                    g_render_dirty = 1;
+                }
+            } else if (g_active_menu != NULL) {
+                /* Menu is active - handle menu interaction */
+                if (mb == 1) {
+                    /* Left click - check if menu item was clicked */
+                    int selected = menu_handle_click(g_active_menu, mx, my);
+                    if (selected >= 0) {
+                        /* Execute menu action */
+                        if (g_active_menu->items[selected].action != NULL) {
+                            g_active_menu->items[selected].action();
+                        }
+                        /* Destroy menu */
+                        menu_destroy(g_active_menu);
+                        g_active_menu = NULL;
+                    } else if (!menu_contains(g_active_menu, mx, my)) {
+                        /* Click outside menu - close it */
+                        menu_destroy(g_active_menu);
+                        g_active_menu = NULL;
+                    }
+                    g_render_dirty = 1;
+                } else if (mb == 0) {
+                    /* No button - just hover to update selection */
+                    if (menu_update_selection(g_active_menu, mx, my)) {
+                        g_render_dirty = 1;
+                    }
+                }
+            } else {
+                /* No menu - pass mouse event to window */
+                KryonWindow *win = window_get(1);
+                if (win != NULL) {
+                    vdev_mouse_write(mbuf, nr, 0, win);
+                    g_render_dirty = 1;  /* Only mark dirty if window exists */
+                }
+            }
         }
     }
 }
@@ -241,8 +311,106 @@ static void process_render_phase(void)
     if (g_render_dirty) {
         g_render_dirty = 0;
         render_all();
+
+        /* Render menu overlay on top if active */
+        if (g_active_menu != NULL && g_active_menu->visible) {
+            menu_render(g_active_menu, g_screen_buffer);
+        }
+
         push_screen_to_marrow();
     }
+}
+
+/*
+ * ========== Menu Action Functions ==========
+ */
+
+/*
+ * Create new window with shell
+ */
+static void menu_action_new(void)
+{
+    static int next_x = 50;
+    static int next_y = 50;
+    KryonWindow *win;
+
+    fprintf(stderr, "Menu action: New\n");
+
+    /* Create new window at offset position */
+    win = wmgr_create_window(next_x, next_y, 640, 480, 1);
+    if (win != NULL) {
+        /* Offset next window position */
+        next_x += 30;
+        next_y += 30;
+
+        /* Wrap around if off screen */
+        if (next_x > 400) next_x = 50;
+        if (next_y > 400) next_y = 50;
+
+        /* Trigger re-render */
+        g_render_dirty = 1;
+    }
+}
+
+/*
+ * Resize window
+ */
+static void menu_action_resize(void)
+{
+    fprintf(stderr, "Menu action: Resize (not yet implemented)\n");
+    /* TODO: Implement resize mode */
+}
+
+/*
+ * Move window
+ */
+static void menu_action_move(void)
+{
+    fprintf(stderr, "Menu action: Move (not yet implemented)\n");
+    /* TODO: Implement move mode */
+}
+
+/*
+ * Delete window
+ */
+static void menu_action_delete(void)
+{
+    KryonWindow *win;
+
+    fprintf(stderr, "Menu action: Delete\n");
+
+    /* Get topmost window */
+    win = wmgr_get_window(wmgr_get_window_count() - 1);
+    if (win != NULL) {
+        wmgr_delete_window(win);
+        g_render_dirty = 1;
+    }
+}
+
+/*
+ * Hide window
+ */
+static void menu_action_hide(void)
+{
+    KryonWindow *win;
+
+    fprintf(stderr, "Menu action: Hide\n");
+
+    /* Get topmost window */
+    win = wmgr_get_window(wmgr_get_window_count() - 1);
+    if (win != NULL) {
+        wmgr_hide_window(win);
+        g_render_dirty = 1;
+    }
+}
+
+/*
+ * Exit window manager
+ */
+static void menu_action_exit(void)
+{
+    fprintf(stderr, "Menu action: Exit\n");
+    running = 0;
 }
 
 /*
@@ -283,7 +451,14 @@ int main(int argc, char **argv)
     watch_mode = 0;
 
     for (i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--marrow") == 0) {
+        /* Positional argument: treat as .kry file */
+        if (argv[i][0] != '-') {
+            if (load_file != NULL) {
+                fprintf(stderr, "Error: only one .kry file can be specified\n");
+                return 1;
+            }
+            load_file = argv[i];
+        } else if (strcmp(argv[i], "--marrow") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "Error: --marrow requires an argument\n");
                 return 1;
@@ -306,10 +481,10 @@ int main(int argc, char **argv)
         } else if (strcmp(argv[i], "--watch") == 0) {
             watch_mode = 1;
         } else if (strcmp(argv[i], "--help") == 0) {
-            fprintf(stderr, "Usage: %s [OPTIONS]\n", argv[0]);
+            fprintf(stderr, "Usage: %s [OPTIONS] [file.kry]\n", argv[0]);
             fprintf(stderr, "\n");
             fprintf(stderr, "Options:\n");
-            fprintf(stderr, "  --marrow ADDR        Marrow server address (default: tcp!localhost!17010)\n");
+            fprintf(stderr, "  --mu ADDR            Mu server address (default: tcp!localhost!17010)\n");
             fprintf(stderr, "  --dump-screen        Dump screenshot to /tmp/wm_before.raw\n");
             fprintf(stderr, "  --run FILE.kry       Load and run the specified .kry file\n");
             fprintf(stderr, "  --watch              Enable hot-reload for .kry file\n");
@@ -317,11 +492,15 @@ int main(int argc, char **argv)
             fprintf(stderr, "  --blank              Clear screen to black and wait\n");
             fprintf(stderr, "  --help               Show this help message\n");
             fprintf(stderr, "\n");
+            fprintf(stderr, "Arguments:\n");
+            fprintf(stderr, "  file.kry             .kry file to load (optional, can be specified without --run)\n");
+            fprintf(stderr, "\n");
             fprintf(stderr, "Examples:\n");
-            fprintf(stderr, "  %s --run examples/minimal.kry              # Run minimal example\n", argv[0]);
-            fprintf(stderr, "  %s --run examples/widgets/button.kry       # Run button widget\n", argv[0]);
-            fprintf(stderr, "  %s --run myapp.kry                        # Run custom file\n", argv[0]);
-            fprintf(stderr, "  %s --blank                                # Clear screen (no UI)\n", argv[0]);
+            fprintf(stderr, "  %s                                      # Start with empty screen\n", argv[0]);
+            fprintf(stderr, "  %s examples/minimal.kry                 # Run minimal example\n", argv[0]);
+            fprintf(stderr, "  %s --run examples/widgets/button.kry    # Run button widget\n", argv[0]);
+            fprintf(stderr, "  %s myapp.kry                            # Run custom file\n", argv[0]);
+            fprintf(stderr, "  %s --blank                              # Clear screen (no UI)\n", argv[0]);
             fprintf(stderr, "\n");
             return 0;
         } else {
@@ -337,7 +516,7 @@ int main(int argc, char **argv)
         printf("\n");
         list_kry_files("examples", "");
         printf("\n");
-        printf("Usage: %s --run <file.kry>\n", argv[0]);
+        printf("Usage: %s <file.kry>\n", argv[0]);
         return 0;
     }
 
@@ -348,7 +527,7 @@ int main(int argc, char **argv)
     g_marrow_client = p9_connect(marrow_addr);
     if (g_marrow_client == NULL) {
         fprintf(stderr, "Error: failed to connect to Marrow at %s\n", marrow_addr);
-        fprintf(stderr, "Is Marrow running? Start it with: ./marrow/bin/marrow\n");
+        fprintf(stderr, "Is Mu running? Start it with: ./mu/bin/mu\n");
         return 1;
     }
 
@@ -401,6 +580,13 @@ int main(int argc, char **argv)
 
     if (widget_registry_init() < 0) {
         fprintf(stderr, "Error: failed to initialize widget registry\n");
+        p9_disconnect(g_marrow_client);
+        return 1;
+    }
+
+    /* Initialize window manager */
+    if (wmgr_init() < 0) {
+        fprintf(stderr, "Error: failed to initialize window manager\n");
         p9_disconnect(g_marrow_client);
         return 1;
     }
@@ -513,30 +699,26 @@ int main(int argc, char **argv)
 
     /* Load .kry file(s) */
     {
-        int result;
+        int result = 0;
 
         if (load_file != NULL) {
             /* Load specified file */
             result = kryon_load_file(load_file);
             if (result < 0) {
                 fprintf(stderr, "Error: failed to load file: %s\n", load_file);
+                fprintf(stderr, "Continuing with empty screen - right-click to create windows\n");
                 fprintf(stderr, "Use --list-examples to see available files\n");
-                p9_disconnect(g_marrow_client);
-                return 1;
-            }
-            if (result == 0) {
+                /* Don't exit - continue with empty screen */
+            } else if (result == 0) {
                 fprintf(stderr, "No windows defined in file: %s\n", load_file);
+            } else {
+                fprintf(stderr, "Loaded %d window(s) from %s\n", result, load_file);
             }
         } else {
-            /* No file specified - show help and exit */
-            fprintf(stderr, "Error: No .kry file specified\n");
-            fprintf(stderr, "Usage: %s --run <file.kry>\n", argv[0]);
-            fprintf(stderr, "Use --list-examples to see available files\n");
-            p9_disconnect(g_marrow_client);
-            return 1;
+            /* No file specified - start with empty screen */
+            fprintf(stderr, "No .kry file specified - starting with empty screen\n");
+            fprintf(stderr, "Right-click to create windows\n");
         }
-
-        fprintf(stderr, "Loaded %d window(s)\n", result);
     }
 
     /* Setup watch mode if requested */
@@ -556,7 +738,7 @@ int main(int argc, char **argv)
         int screen_width = 0;
         int screen_height = 0;
 
-        /* Derive dimensions from first window definition */
+        /* Derive dimensions from first window definition, or use default */
         {
             KryonWindow *win = window_get(1);
             if (win != NULL && win->rect != NULL) {
@@ -565,8 +747,15 @@ int main(int argc, char **argv)
             }
         }
 
+        /* If no windows defined, use default screen size */
+        if (screen_width == 0 || screen_height == 0) {
+            screen_width = 1024;
+            screen_height = 768;
+            fprintf(stderr, "Using default screen size: %dx%d\n", screen_width, screen_height);
+        }
+
         /* Set Marrow's screen size to match our window dimensions */
-        if (screen_width > 0 && screen_height > 0) {
+        {
             int ctl_fd;
             char cmd[64];
             ssize_t written;
@@ -808,6 +997,9 @@ check_controls:
 
     /* Unregister from Marrow */
     marrow_service_unregister(g_marrow_client, "kryon");
+
+    /* Cleanup window manager */
+    wmgr_cleanup();
 
     /* event_system_cleanup();  TODO: Re-enable when graphics linked */
     tree_cleanup();
