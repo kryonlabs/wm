@@ -1,0 +1,30 @@
+# Build directories
+build/
+bin/
+
+# Object files
+*.o
+*.a
+
+# Compiled binaries
+wm
+wm-tk
+
+# Editor files
+*~
+*.swp
+*.swo
+.*.sw.*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-*
+
+# Temporary files
+*.tmp
+*.bak

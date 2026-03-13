@@ -1,0 +1,84 @@
+WM: TaijiOS Window Manager
+
+Standalone window manager for TaijiOS. Provides window management
+services and the /mnt/wm filesystem.
+
+OVERVIEW
+
+WM provides:
+
+    Window Management    - Create, move, resize, close windows
+    Filesystem Interface - /mnt/wm for window control
+    Virtual Devices      - Each window has /dev/draw, /dev/mouse, /dev/kbd
+    Marrow Integration   - Uses Marrow for graphics rendering
+
+WM is standalone and has no toolkit dependencies.
+
+QUICK START
+
+Start WM (connects to Marrow at tcp!localhost!17010):
+
+    ./bin/wm
+
+Start WM with custom Marrow address:
+
+    ./bin/wm --marrow tcp!192.168.1.100!17010
+
+Start WM and load .kry file:
+
+    ./bin/wm --run myapp.kry
+
+FILESYSTEM
+
+WM exposes /mnt/wm:
+
+    /mnt/wm/
+    ├── ctl               - Create top-level window
+    ├── win/
+    │   └── [id]/         - Window directory
+    │       ├── title     - Window title
+    │       ├── rect      - "x y width height"
+    │       ├── visible   - "1" or "0"
+    │       ├── dev/      - Virtual devices
+    │       │   ├── draw  - Virtual /dev/draw
+    │       │   ├── cons  - Virtual /dev/cons
+    │       │   ├── mouse - Virtual /dev/mouse
+    │       │   └── kbd   - Virtual /dev/kbd
+    │       └── win/      - Nested windows
+    └── active            - Symlink to focused window
+
+COMPONENTS
+
+src/main.c           - WM entry point
+include/wm.h         - WM client API
+
+BUILD
+
+    mk all              - Build WM binary
+    mk clean            - Clean build artifacts
+
+Binary: bin/wm
+
+REQUIREMENTS
+
+    - Marrow (graphics primitives, /dev/draw)
+    - TaijiOS Toolkit (window and widget types)
+    - Plan 9 C library (lib9)
+    - Linux (primary platform)
+
+ARCHITECTURE
+
+WM is standalone:
+
+    wm/           - Window Manager (standalone, no toolkit)
+    tk/           - Toolkit (TK only - widgets, layouts)
+
+This separation allows:
+    Game libraries (qi) to use WM without loading TK code
+    WM to be used with any toolkit
+    Better performance (no widget overhead for games)
+
+CONTRIBUTING
+
+Maintain C89/C90 compliance. Follow Plan 9 conventions. Use Plan 9
+toolchain (9c/9l) for builds.
